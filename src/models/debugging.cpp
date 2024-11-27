@@ -4,6 +4,10 @@
 #include "utils.h"
 #include <cinttypes>
 
+#if USE_CUDA
+#include "../cuda/cuda_common.h"
+#endif
+
 #if USE_DML
 #include "../dml/dml_helpers.h"
 #include "model.h"
@@ -15,7 +19,7 @@ static constexpr size_t c_value_count = 10;  // Dump this many values from the s
 template <typename... Types>
 const char* TypeToString(ONNXTensorElementDataType type, Ort::TypeList<Types...>) {
   const char* name = "(please add type to list)";
-  ((type == Ort::TypeToTensorType<Types> ? name = typeid(Types).name(), true : false) || ...);
+  (void)((type == Ort::TypeToTensorType<Types> ? name = typeid(Types).name(), true : false) || ...);
   return name;
 }
 
@@ -46,18 +50,6 @@ void DumpSpan(std::ostream& stream, std::span<const T> values) {
       stream << values[i] << ' ';
   }
 }
-
-#if USE_CUDA
-template <typename T>
-void DumpCudaSpan(std::ostream& stream, std::span<const T> data) {
-  auto cpu_copy = std::make_unique<T[]>(data.size());
-  CudaCheck() == cudaMemcpy(cpu_copy.get(), data.data(), data.size_bytes(), cudaMemcpyDeviceToHost);
-
-  DumpSpan(stream, std::span<const T>{cpu_copy.get(), data.size()});
-}
-template void DumpCudaSpan(std::ostream&, std::span<const float>);
-template void DumpCudaSpan(std::ostream&, std::span<const int32_t>);
-#endif
 
 template <typename... Types>
 bool DumpSpan(std::ostream& stream, ONNXTensorElementDataType type, const void* p_values_raw, size_t count, Ort::TypeList<Types...>) {
