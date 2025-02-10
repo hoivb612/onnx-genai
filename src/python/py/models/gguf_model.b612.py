@@ -50,10 +50,6 @@ class GGUFDecoderLayer:
         self.post_attention_layernorm = GGUFTensorModule()
         self.mlp = GGUFMLP()
 
-        # For Gemma-2:
-        self.pre_feedforward_layernorm = GGUFTensorModule()
-        self.post_feedforward_layernorm = GGUFTensorModule()
-
 
 class GGUFModel:
     def __init__(self, input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size):
@@ -84,7 +80,7 @@ class GGUFModel:
                 self.lm_head.weight = data.reshape(lm_head_shape)
             elif name == "output.bias":
                 self.lm_head.bias = data
-            elif name in {"rope_freqs.weight", "rope_factors_short.weight", "rope_factors_long.weight"}:
+            elif name == "rope_freqs.weight":
                 # Skip rotary embedding weights since they can be re-calculated when looping through the model
                 continue
             else:
@@ -143,11 +139,11 @@ class GGUFModel:
                 elif bool(re.match(r"^blk\.\d+\.ffn_gate\.bias$", name)):
                     # blk.layer_id.ffn_gate.bias
                     module.mlp.gate_proj.bias = data
-                elif bool(re.match(r"^blk\.\d+\.ffn_up\.weight$", name)) and data.shape[0] == intermediate_size:
+                elif bool(re.match(r"^blk\.\d+\.ffn_up\.weight$", name)):
                     # blk.layer_id.ffn_up.weight
                     up_shape = [intermediate_size, hidden_size]
                     module.mlp.up_proj.weight = data.reshape(up_shape)
-                elif bool(re.match(r"^blk\.\d+\.ffn_up\.bias$", name)) and data.shape[0] == intermediate_size:
+                elif bool(re.match(r"^blk\.\d+\.ffn_up\.bias$", name)):
                     # blk.layer_id.ffn_up.bias
                     module.mlp.up_proj.bias = data
                 elif bool(re.match(r"^blk\.\d+\.ffn_down\.weight$", name)):
@@ -157,62 +153,6 @@ class GGUFModel:
                 elif bool(re.match(r"^blk\.\d+\.ffn_down\.bias$", name)):
                     # blk.layer_id.ffn_down.bias
                     module.mlp.down_proj.bias = data
-                # Match against fused layers
-                elif bool(re.match(r"^blk\.\d+\.attn_qkv\.weight$", name)):
-                    # blk.layer_id.attn_qkv.weight
-                    q_size = num_attn_heads * head_size
-                    kv_size = num_kv_heads * head_size
-                    qkv_shape = [q_size + kv_size + kv_size, hidden_size]
-                    qkv = data.reshape(qkv_shape)
-
-                    module.self_attn.q_proj.weight = qkv[: q_size, :]
-                    module.self_attn.k_proj.weight = qkv[q_size : q_size + kv_size, :]
-                    module.self_attn.v_proj.weight = qkv[q_size + kv_size :, :]
-                elif bool(re.match(r"^blk\.\d+\.attn_qkv\.bias$", name)):
-                    # blk.layer_id.attn_qkv.bias
-                    q_size = num_attn_heads * head_size
-                    kv_size = num_kv_heads * head_size
-
-                    module.self_attn.q_proj.bias = data[: q_size]
-                    module.self_attn.k_proj.bias = data[q_size : q_size + kv_size]
-                    module.self_attn.v_proj.bias = data[q_size + kv_size :]
-                elif bool(re.match(r"^blk\.\d+\.ffn_up\.weight$", name)) and data.shape[0] != intermediate_size:
-                    # blk.layer_id.ffn_up.weight (gate_up_proj.weight)
-                    module.mlp.gate_proj.weight = data[: intermediate_size, :]
-                    module.mlp.up_proj.weight = data[intermediate_size :, :]
-                elif bool(re.match(r"^blk\.\d+\.ffn_up\.bias$", name)) and data.shape[0] != intermediate_size:
-                    # blk.layer_id.ffn_up.bias (gate_up_proj.bias)
-                    module.mlp.gate_proj.bias = data[: intermediate_size]
-                    module.mlp.up_proj.bias = data[intermediate_size :]
-                # Match against non-standard attribute names
-                elif bool(re.match(r"^blk\.\d+\.post_attention_norm\.weight$", name)):
-                    # Note: This meaning of this name differs in Hugging Face vs GGUF.
-                    # Hugging Face labels this as the 'pre_feedforward_layernorm' since there is already a 'post_attention_layernorm'.
-                    # GGUF labels this as the 'post_attention_norm' since the first norm after attention is named as 'ffn_norm'.
-
-                    # blk.layer_id.post_attention_norm.weight
-                    module.pre_feedforward_layernorm.weight = data
-                elif bool(re.match(r"^blk\.\d+\.post_attention_norm\.bias$", name)):
-                    # Note: This meaning of this name differs in Hugging Face vs GGUF.
-                    # Hugging Face labels this as the 'pre_feedforward_layernorm' since there is already a 'post_attention_layernorm'.
-                    # GGUF labels this as the 'post_attention_norm' since the first norm after attention is named as 'ffn_norm'.
-
-                    # blk.layer_id.post_attention_norm.bias
-                    module.pre_feedforward_layernorm.bias = data
-                elif bool(re.match(r"^blk\.\d+\.post_ffw_norm\.weight$", name)):
-                    # Note: This meaning of this name differs in Hugging Face vs GGUF.
-                    # Hugging Face labels this as the 'input_layernorm' since it is the start of a layer.
-                    # GGUF labels this as the 'post_ffw_norm' since the first norm to start a layer is named as 'attn_norm'.
-
-                    # blk.layer_id.post_ffw_norm.weight
-                    module.post_feedforward_layernorm.weight = data
-                elif bool(re.match(r"^blk\.\d+\.post_ffw_norm\.bias$", name)):
-                    # Note: This meaning of this name differs in Hugging Face vs GGUF.
-                    # Hugging Face labels this as the 'input_layernorm' since it is the start of a layer.
-                    # GGUF labels this as the 'post_ffw_norm' since the first norm to start a layer is named as 'attn_norm'.
-
-                    # blk.layer_id.post_ffw_norm.bias
-                    module.post_feedforward_layernorm.bias = data
                 else:
                     raise NotImplementedError(f"{name} in your GGUF model is not recognized")
         
@@ -236,7 +176,7 @@ class GGUFModel:
     def undo_permute(self, head_size, hidden_size, num_attn_heads, num_kv_heads):
         """
         Undo `permute` operation by GGUF to get Hugging Face format
-        For GGUF models that contain a `permute()` call in `convert_hf_to_gguf.py` (e.g. Granite, LLaMA, Mistral, OLMo)
+        For GGUF models produced by `convert.py` (e.g. LLaMA, Mistral)
         """
         for module in self.layers:
             q_shape = [head_size * num_attn_heads, hidden_size]
@@ -256,25 +196,6 @@ class GGUFModel:
             module.mlp.fc1, module.mlp.up_proj = module.mlp.up_proj, module.mlp.fc1
             module.mlp.fc2, module.mlp.down_proj = module.mlp.down_proj, module.mlp.fc2
 
-    def swap_norm_types(self):
-        """
-        Swap `post_attention_layernorm` and `pre_feedforward_layernorm` attributes
-        For GGUF models such as Gemma-2
-
-        Ex: Gemma-2
-        Regular model's mapping of GGUF --> Hugging Face:
-        - attn_norm --> input_layernorm
-        - ffn_norm --> post_attention_layernorm
-
-        Gemma-2 model's mapping of GGUF --> Hugging Face:
-        - attn_norm --> input_layernorm
-        - ffn_norm --> pre_feedforward_layernorm
-        - post_attention_norm --> post_attention_layernorm
-        - post_ffw_norm --> post_feedforward_layernorm
-        """
-        for module in self.layers:
-            module.post_attention_layernorm, module.pre_feedforward_layernorm = module.pre_feedforward_layernorm, module.post_attention_layernorm
-
     @staticmethod
     def from_pretrained(model_type, input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size):
         """
@@ -282,34 +203,17 @@ class GGUFModel:
         Also performs any pre-processing and post-processing to the GGUF models to ensure the
         weights are the same as the PyTorch models.
         """
-        if model_type == "ChatGLMModel":
+        if model_type == "GemmaForCausalLM":
             model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-        elif model_type == "GemmaForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-        elif model_type == "Gemma2ForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-            model.swap_norm_types()
-        elif model_type == "GraniteForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-            model.undo_permute(head_size, hidden_size, num_attn_heads, num_kv_heads)
         elif model_type == "LlamaForCausalLM":
             model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
             model.undo_permute(head_size, hidden_size, num_attn_heads, num_kv_heads)
         elif model_type == "MistralForCausalLM":
             model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
             model.undo_permute(head_size, hidden_size, num_attn_heads, num_kv_heads)
-        elif model_type == "NemotronForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-        elif model_type == "OlmoForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-            model.undo_permute(head_size, hidden_size, num_attn_heads, num_kv_heads)
         elif model_type == "PhiForCausalLM":
             model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
             model.swap_mlp_types()
-        elif model_type == "Phi3ForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
-        elif model_type == "Qwen2ForCausalLM":
-            model = GGUFModel(input_path, head_size, hidden_size, intermediate_size, num_attn_heads, num_kv_heads, vocab_size)
         else:
             raise NotImplementedError(f"The {model_type} model is not currently supported.")
 
