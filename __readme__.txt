@@ -31,7 +31,7 @@ C:\llama.cpp\Onnx-GenAI>build [--use_dml] --skip_wheel
 
 ========================================================================================================
 
-C:\llama.cpp\Onnx-GenAI>cmake --preset windows_x64_cpu_relwithdebinfo -B build_cpu_pdb -DENABLE_PYTHON=OFF -DENABLE_TESTS=OFF -DUSE_DML=OFF
+C:\llama.cpp\Onnx-GenAI>cmake --preset windows_x64_cpu_relwithdebinfo -B build_cpu_pdb -DENABLE_PYTHON=OFF -DENABLE_TESTS=OFF -DUSE_DML=OFF -DUSE_GUIDANCE=OFF
 Preset CMake variables:
 
   CMAKE_BUILD_TYPE="RelWithDebInfo"

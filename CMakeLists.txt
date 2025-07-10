@@ -95,15 +95,23 @@ if(WIN32)
   target_compile_definitions(onnxruntime-genai PRIVATE VERSION_PATCH=${VERSION_PATCH})
   target_compile_definitions(onnxruntime-genai PRIVATE VERSION_SUFFIX=${VERSION_SUFFIX})
   target_compile_definitions(onnxruntime-genai PRIVATE FILE_NAME=\"onnxruntime-genai.dll\")
+
+  add_library(onnxruntime-genai-static STATIC ${generator_srcs})
 else()
   add_library(onnxruntime-genai SHARED ${generator_srcs})
 endif()
 
 target_include_directories(onnxruntime-genai PRIVATE ${ORT_HEADER_DIR})
+target_include_directories(onnxruntime-genai-static PRIVATE ${ORT_HEADER_DIR})
+target_include_directories(onnxruntime-genai PRIVATE ${onnxruntime_extensions_SOURCE_DIR}/include)
 target_include_directories(onnxruntime-genai PRIVATE ${onnxruntime_extensions_SOURCE_DIR}/shared/api)
+target_include_directories(onnxruntime-genai-static PRIVATE ${onnxruntime_extensions_SOURCE_DIR}/include)
+target_include_directories(onnxruntime-genai-static PUBLIC ${onnxruntime_extensions_SOURCE_DIR}/shared/api/)
 target_link_libraries(onnxruntime-genai PRIVATE onnxruntime_extensions)
+target_link_libraries(onnxruntime-genai-static PUBLIC onnxruntime_extensions)
 target_link_directories(onnxruntime-genai PRIVATE ${ORT_LIB_DIR})
 target_link_libraries(onnxruntime-genai PRIVATE Threads::Threads)
+target_link_libraries(onnxruntime-genai-static PUBLIC Threads::Threads)
 
 # The genai library itself is always embedded in the shared library
 list(APPEND ortgenai_embed_libs "$<TARGET_FILE:onnxruntime-genai>")
@@ -196,6 +204,7 @@ if(USE_DML)
 
   add_dependencies(RESTORE_PACKAGES nuget)
   add_dependencies(onnxruntime-genai RESTORE_PACKAGES)
+  add_dependencies(onnxruntime-genai-static RESTORE_PACKAGES)
 endif()
 
 if(ANDROID)
